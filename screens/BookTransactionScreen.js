@@ -1,0 +1,218 @@
+import React from 'react';
+import {
+  StyleSheet, Text, View, TouchableOpacity, Button, TextInput, KeyboardAvoidingView,
+  ToastAndroid
+} from 'react-native';
+import { BarCodeScanner } from 'expo-barcode-scanner';
+import * as Permissions from 'expo-permissions';
+import { color } from 'react-native-reanimated';
+import db from '../config'
+
+export default class TransactionScreen extends React.Component {
+  constructor() {
+    super()
+    this.state = {
+      hasCameraPermission: null,
+      scanned: false,
+      scannedBookId: '',
+      scannedStudentId: '',
+      buttonState: 'normal',
+      TransactionMessage: ''
+    }
+  }
+  getCameraPermissions = async (id) => {
+    const { status } = await Permissions.askAsync(Permissions.CAMERA)
+    this.setState({
+      hasCameraPermission: status === "granted",
+      buttonState: id,
+      scanned: false
+    })
+  }
+  handleBarCodeScanner = async ({ type, data }) => {
+    console.log("32: ",data)
+    const { buttonState } = this.state
+    console.log("32: ",buttonState)
+    if (buttonState === "BookId") {
+      this.setState({
+        scanned: true,
+        scannedBookId: data,
+        buttonState: 'normal'
+      })
+    }
+    else if (buttonState === "StudentID") {
+      this.setState({
+        scanned: true,
+        scannedStudentId: data,
+        buttonState: 'normal'
+      })
+    }
+  }
+  initiateBookIssue = async () => {
+    db.collection("Transactions").add({
+      'StudentID': this.state.scannedStudentId,
+      'BookId': this.state.scannedBookId,
+      //'date': firebase.firestore.Timestamp.now().toDate(),
+      'TransactionType': "Issued"
+    })
+    db.collection("books").doc(this.state.scannedBookId).update({
+      'BookAvailability': false
+    })
+    db.collection("Student").doc(this.state.scannedStudentId).update({
+      'BooksIssued': firebase.firestore.FieldValue.increment(1)
+    })
+    this.setState({
+      scannedStudentId: '',
+      scannedBookId: ''
+    })
+  }
+  initiateBookReturn = async () => {
+    db.collection("Transactions").add({
+      'StudentID': this.state.scannedStudentId,
+      'BookId': this.state.scannedBookId,
+      'date': firebase.firestore.Timestamp.now().toDate(),
+      'TransactionType': "Return"
+    })
+    db.collection("books").doc(this.state.scannedBookId).update({
+      'BookAvailability': true
+    })
+    db.collection("Student").doc(this.state.scannedStudentId).update({
+      'BooksIssued': firebase.firestore.FieldValue.increment(-1)
+    })
+    this.setState({
+      scannedStudentId: '',
+      scannedBookId: ''
+    })
+  }
+  handleTransaction = async () => {
+    var TransactionMessage;
+    db.collection("books").doc(this.state.scannedBookId).get()
+      .then((doc) => {
+        var book = doc.data()
+        console.log("book: ", book)
+        if (book.BookAvailability) {
+          this.initiateBookIssue()
+          TransactionMessage = "Book has been issued"
+          ToastAndroid.show(TransactionMessage, ToastAndroid.SHORT)
+        } else {
+          this.initiateBookReturn()
+          TransactionMessage = "Book has returned"
+          ToastAndroid.show(TransactionMessage, ToastAndroid.SHORT)
+        }
+      })
+    this.setState({
+      TransactionMessage: TransactionMessage
+    })
+  }
+
+  render() {
+    const hasCameraPermission = this.state.hasCameraPermission;
+    const scanned = this.state.scanned;
+    const buttonState = this.state.buttonState;
+
+
+    if (buttonState !== "normal" && hasCameraPermission) {
+      return (
+        <BarCodeScanner onBarCodeScanned={scanned ? undefined : this.handleBarCodeScanner}
+          style={StyleSheet.absoluteFillObject}
+        />)
+    } else if (buttonState === "normal") {
+      return (
+        <KeyboardAvoidingView style={styles.container} behavior="padding" enabled>
+
+
+          <View style={styles.inputView}>
+            <TextInput
+              style={styles.inputBox}
+              placeholder="Book Id"
+              onChangeText={text => this.setState({ scannedBookId: text })}
+              value={this.state.scannedBookId} />
+            <TouchableOpacity
+              onPress={() => {
+                this.getCameraPermissions("BookId")
+              }}
+              style={styles.scanButton}>
+              <Text style={{ fontSize: 15, textAlign: 'center', marginTop: 10 }} >Scan</Text>
+            </TouchableOpacity>
+
+          </View>
+
+          <View style={styles.inputView}>
+            <TextInput
+              style={styles.inputBox}
+              placeholder="Student Id"
+              onChangeText={text => { this.setState({ scannedStudentId: text }) }}
+              value={this.state.scannedStudentId} />
+            <TouchableOpacity onPress={() => { this.getCameraPermissions("StudentID") }}
+              style={styles.scanButton}>
+              <Text style={{ fontSize: 15, textAlign: 'center', marginTop: 10 }} >Scan</Text>
+            </TouchableOpacity>
+
+          </View>
+          <TouchableOpacity
+            onPress={async() => {
+              var TransactionMessage = this.handleTransaction()
+              this.setState({
+                scannedBookId:'',
+                scannedStudentId:''
+              })
+            }}
+            style={styles.submitButton}>
+            <Text style={styles.submitText}>Submit</Text>
+          </TouchableOpacity>
+
+        </KeyboardAvoidingView>
+      )
+    }
+  }
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  displayText: {
+    fontSize: 15,
+    textDecorationLine: 'underline'
+  },
+  scanButton: {
+    backgroundColor: '#2196F3',
+    padding: 10,
+    margin: 10
+  },
+  buttonText: {
+    fontSize: 15,
+    textAlign: 'center',
+    marginTop: 10
+  },
+  inputView: {
+    flexDirection: 'row',
+    margin: 20
+  },
+  inputBox: {
+    width: 200,
+    height: 40,
+    borderWidth: 1.5,
+    borderRightWidth: 0,
+    fontSize: 20
+  },
+  scanButton: {
+    backgroundColor: '#66BB6A',
+    width: 50,
+    borderWidth: 1.5,
+    borderLeftWidth: 0
+  },
+  submitButton: {
+    backgroundColor: 'blue',
+    width: 100,
+    height: 50
+  },
+  submitText: {
+    padding: 10,
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white'
+  }
+});
